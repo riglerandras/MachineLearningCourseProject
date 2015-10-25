@@ -1,0 +1,93 @@
+---
+title: "Practical Machine Learning - Course Project"
+author: "Andras Rigler"
+date: "Sunday, October 25, 2015"
+output: html_document
+---
+**In this project we try to predict the manner in which people performed the exercise of barebell lifts. We use accelerometer data to predict the type of the exercise. The outcome variable has 5 classes (A,B,C,D,E) and we have over 100 predictors.**
+
+### Download and read data
+
+```{r}
+if(!file.exists("pml-testing.csv")){
+    download.file(
+        url="https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv",
+        destfile="pml-training.csv")
+}
+
+if(!file.exists("pml-testing.csv")){
+    download.file(
+        url="https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv",
+        destfile="pml-testing.csv")
+}
+
+d <- read.csv("pml-training.csv",row.names=1,na.strings = c("NA",""))
+dim(d)
+
+test <- read.csv("pml-testing.csv",row.names=1,na.strings = c("NA",""))
+dim(test)
+```
+
+### Partition data
+
+```{r}
+library(caret)
+set.seed(123)
+inTrain <- createDataPartition(y=d$classe, p=0.7, list=FALSE)
+training <- d[inTrain,]
+testing <- d[-inTrain,]
+
+rbind(train=dim(training), test=dim(testing))
+```
+
+### Data preparation
+
+Before we could start building a predictive model, we need to clean up the data - remove unnecessary columns and columns with missing data.
+
+```{r}
+## check missing values
+table(colSums(is.na(training)))
+
+## Remove missing columns from training set
+
+keepCols <- colSums(is.na(training)) == 0
+training <- training[,keepCols]
+testing <- testing[,keepCols]
+
+## Remove technical columns from training set
+training <- training[, -(1:6)]
+testing <- testing[, -(1:6)]
+dim(training); dim(testing)
+```
+
+### Preprocessing
+
+As we have 53 variables in our training dataset, it is worth trying to reduce the size of dataset. To achieve this, we will use principal component analysis. We want to keep most of the information in the original variables, therefore we set the threshold to 95%.
+
+```{r}
+preProc <- preProcess(training[,-53],method="pca",thresh=.95)
+trainPC <- predict(preProc, training)
+testPC <- predict(preProc, testing)
+```
+
+Now we can build a predictive model based on our preprocessed data. As the outcome variable has 5 classes, the random forest method seems to be most adequate. We use 4-fold crossvalidation as this gives acceptable accuracy and increasing the number of folds leads to only a little improvement of the model while the computing time gets much longer.
+
+```{r, eval=FALSE}
+modFit <- train(classe ~ ., method = "rf", 
+                 data = trainPC, importance = T, 
+                 trControl = trainControl(method = "cv", number = 4))
+```
+```{r, echo=FALSE}
+modFit <- readRDS("finalModel.Rds")
+```
+
+We need to examine the accuracy of this model using the `confusionMatrix()` function:
+
+```{r}
+confusionMatrix(predict(modFit, testPC), testPC$classe)
+```
+
+Based on the estimation from our testing data set, the accuracy of the model (that is, the rate of correctly classified cases) is 97.5 %, therefore the out-of-sample error (the proportion of misclassified cases) is 2.5%.
+
+As we used principal components to perform our prediction, it is not really interesting looking at a plot of the importance of predicting variables.
+
